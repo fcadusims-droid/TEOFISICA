@@ -111,68 +111,116 @@ def simulate_snn_with_quantum_influence(scenario_name, coherence_tau):
 
     return np.array(spike_times), np.array(spike_neurons), t
 
+def compute_avalanches(spike_times, duration, bin_size=0.01):
+    """Compute avalanche sizes, durations, and effective branching ratio."""
+    bins = np.arange(0, duration + bin_size, bin_size)
+    counts, _ = np.histogram(spike_times, bins=bins)
+    active = counts > 0
+
+    avalanches = []
+    durations = []
+    sigma_events = []
+    start = None
+
+    for i, active_bin in enumerate(active):
+        if active_bin and start is None:
+            start = i
+        elif not active_bin and start is not None:
+            avalanche = counts[start:i]
+            if avalanche.sum() > 0:
+                avalanches.append(avalanche.sum())
+                durations.append((i - start) * bin_size)
+                for j in range(len(avalanche) - 1):
+                    if avalanche[j] > 0:
+                        sigma_events.append(avalanche[j + 1] / avalanche[j])
+            start = None
+
+    if start is not None:
+        avalanche = counts[start:]
+        if avalanche.sum() > 0:
+            avalanches.append(avalanche.sum())
+            durations.append((len(active) - start) * bin_size)
+            for j in range(len(avalanche) - 1):
+                if avalanche[j] > 0:
+                    sigma_events.append(avalanche[j + 1] / avalanche[j])
+
+    sigma = np.nan if len(sigma_events) == 0 else np.mean(sigma_events)
+    return counts, avalanches, durations, sigma
+
 # --- Run simulations for each quantum scenario ---
 results = {}
 for scenario, tau in coherence_times.items():
     spike_times, spike_neurons, t = simulate_snn_with_quantum_influence(scenario, tau)
+    counts, avalanches, durations, sigma = compute_avalanches(spike_times, duration)
     results[scenario] = {
         'spike_times': spike_times,
         'spike_neurons': spike_neurons,
         't': t,
-        'tau': tau
+        'tau': tau,
+        'counts': counts,
+        'avalanches': avalanches,
+        'durations': durations,
+        'sigma': sigma,
     }
 
 # --- Plotting ---
-fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
 
-# Plot 1: Raster plots
+# Plot 1: Raster plots (reference only)
 for i, (scenario, data) in enumerate(results.items()):
-    ax = axes[0, i] if i < 2 else axes[1, 0] if i == 2 else axes[1, 1]
+    ax = axes[i]
     if len(data['spike_times']) > 0:
         ax.scatter(data['spike_times'], data['spike_neurons'], s=1, c='k')
-    ax.set_xlabel('Time (s)')
     ax.set_ylabel('Neuron index')
-    ax.set_title(f'{scenario}\n(τ = {data["tau"]:.1e} s)')
+    ax.set_title(f'{scenario} (τ = {data["tau"]:.1e} s)')
     ax.set_xlim(0, duration)
     ax.set_ylim(0, N_neurons)
-
-# Plot 2: Firing rates
-ax = axes[1, 1]
-for scenario, data in results.items():
-    if len(data['spike_times']) > 0:
-        # Calculate firing rate over time
-        bin_size = 0.1  # 100ms bins
-        bins = np.arange(0, duration + bin_size, bin_size)
-        rates, _ = np.histogram(data['spike_times'], bins=bins)
-        rates = rates / (bin_size * N_neurons)  # Hz per neuron
-        bin_centers = bins[:-1] + bin_size/2
-        ax.plot(bin_centers, rates, label=f'{scenario} (τ={data["tau"]:.1e}s)')
-    else:
-        ax.plot([], [], label=f'{scenario} (τ={data["tau"]:.1e}s) - No spikes')
-ax.set_xlabel('Time (s)')
-ax.set_ylabel('Mean firing rate (Hz)')
-ax.set_title('Neural firing rates with quantum influence')
-ax.legend()
-ax.grid(True)
+    if i == 2:
+        ax.set_xlabel('Time (s)')
 
 plt.tight_layout()
-plt.savefig('snn_quantum_influence.png', dpi=200, bbox_inches='tight')
+plt.savefig('snn_quantum_raster_reference.png', dpi=200, bbox_inches='tight')
+
+fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+# Plot 2: Avalanche size distribution
+ax = axes[0]
+for scenario, data in results.items():
+    if len(data['avalanches']) > 0:
+        counts, bins = np.histogram(data['avalanches'], bins=np.logspace(-1, np.log10(max(data['avalanches']) + 1), 20))
+        bin_centers = np.sqrt(bins[:-1] * bins[1:])
+        ax.loglog(bin_centers, counts + 1, marker='o', label=f'{scenario}')
+ax.set_xlabel('Avalanche size')
+ax.set_ylabel('Count')
+ax.set_title('Avalanche size distribution (log-log)')
+ax.grid(True, which='both', ls='--', alpha=0.5)
+ax.legend()
+
+# Plot 3: Avalanche duration distribution
+ax = axes[1]
+for scenario, data in results.items():
+    if len(data['durations']) > 0:
+        counts, bins = np.histogram(data['durations'], bins=np.logspace(-3, np.log10(max(data['durations']) + 1e-6), 20))
+        bin_centers = np.sqrt(bins[:-1] * bins[1:])
+        ax.loglog(bin_centers, counts + 1, marker='o', label=f'{scenario}')
+ax.set_xlabel('Avalanche duration (s)')
+ax.set_ylabel('Count')
+ax.set_title('Avalanche duration distribution (log-log)')
+ax.grid(True, which='both', ls='--', alpha=0.5)
+ax.legend()
+
+plt.tight_layout()
+plt.savefig('snn_quantum_avalanche_analysis.png', dpi=200, bbox_inches='tight')
 
 # --- Quantitative analysis ---
-print("\nQuantitative analysis:")
+print("\nAvalanche-focused analysis:")
 for scenario, data in results.items():
     total_spikes = len(data['spike_times'])
-    if total_spikes > 0:
-        # Calculate firing rates in bins
-        bin_size = 0.1  # 100ms bins
-        bins = np.arange(0, duration + bin_size, bin_size)
-        rates, _ = np.histogram(data['spike_times'], bins=bins)
-        rates = rates / (bin_size * N_neurons)  # Hz per neuron
-        mean_rate = np.mean(rates)
-        std_rate = np.std(rates)
-        cv = std_rate / mean_rate if mean_rate > 0 else 0  # Coefficient of variation
-        print(f"{scenario}: Total spikes = {total_spikes}, Mean rate = {mean_rate:.1f} ± {std_rate:.1f} Hz, CV = {cv:.2f}")
-    else:
-        print(f"{scenario}: Total spikes = {total_spikes}, Mean rate = 0.0 ± 0.0 Hz, CV = 0.00")
+    n_avalanches = len(data['avalanches'])
+    mean_size = np.mean(data['avalanches']) if n_avalanches > 0 else 0
+    mean_duration = np.mean(data['durations']) if n_avalanches > 0 else 0
+    sigma = data['sigma']
+    print(f"{scenario}: spikes={total_spikes}, avalanches={n_avalanches}, mean size={mean_size:.1f}, mean duration={mean_duration:.3f}s, sigma={sigma:.2f}")
 
-print("\nSaved figure: snn_quantum_influence.png")
+print("\nNote: The critical metric is the branching parameter sigma and the avalanche distributions, not raw firing rate.")
+print("Saved figure: snn_quantum_avalanche_analysis.png")

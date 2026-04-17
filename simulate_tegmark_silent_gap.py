@@ -5,19 +5,24 @@ from scipy.optimize import curve_fit
 
 
 # --- Model parameters ---
-# Dimensionless units: 1 time unit = 3e-8 s, 1 frequency unit = 3.3e7 Hz
+# Dimensionless simulation units are anchored to physical Hz and seconds.
+# 1 time unit = 3e-8 s, so 1 frequency unit = 3.33e7 Hz.
 time_unit = 3e-8  # seconds per unit
 freq_unit = 1 / time_unit  # Hz per unit
 
 # Spin chain parameters
 N = 2  # 31P spin chain length
-omega_spin = 0.01  # low-frequency spin transition (dimensionless)
+omega_spin = 1e2  # low-frequency spin transition (dimensionless, ~3.3 GHz)
 J_zz = 0.05  # weak coupling between adjacent spins
 
 # Bath / phonon environment parameters
 alpha = 1e-2  # coupling strength prefactor
-omega_cutoff = 5e2  # bath cutoff / high-frequency vibration scale
-omega_vib = 1e3  # dominant protein vibration frequency
+omega_cutoff = 1e3  # bath cutoff / high-frequency vibration scale (~3e10 Hz)
+omega_vib = 3e3  # dominant protein vibration frequency (~1e11 Hz, protein Debye band)
+
+# Floquet drive parameters
+A_drive = 10.0  # drive amplitude in same units as H
+omega_drive_list = [0.0, 5e1, 2e2, 5e2, 1e3]  # drive frequencies (dimensionless)
 
 # Floquet drive parameters
 A_drive = 10.0  # drive amplitude in same units as H
@@ -89,6 +94,13 @@ def run_bloch_redfield(scenario):
     drive_term = [sum(sigmax_list), lambda t, args: A_drive * np.cos(omega_drive * t)] if scenario["drive"] else None
     H = [H0] if not scenario["drive"] else [H0, drive_term]
 
+    # WARNING: standard Bloch-Redfield in QuTiP is based on static frequency components
+    # and does not properly incorporate strong time-dependent Floquet drives. The secular
+    # approximation breaks down for A cos(omega t) with large omega and strong amplitude.
+    if scenario["drive"]:
+        print("WARNING: Bloch-Redfield BR estimate is not reliable for strong time-dependent Floquet drives.")
+        print("         This result is retained only as an illustrative reference, not as an ab initio proof.")
+
     a_ops = [(sz, scenario["spectral_density"]) for sz in sigmaz_list]
     solver_options = {"nsteps": 20000, "atol": 1e-8, "rtol": 1e-6}
     sol = brmesolve(H, psi0, tlist, a_ops=a_ops, sec_cutoff=-1, e_ops=[obs], options=solver_options)
@@ -112,7 +124,7 @@ def run_bloch_redfield(scenario):
                 tau_est = tlist[-1] * time_unit
 
     return {
-        "label": scenario["label"] + " (BR)",
+        "label": scenario["label"] + " (BR, not reliable for Floquet)",
         "tlist": tlist,
         "expect": np.real(sol.expect[0]),
         "gamma_eff": None,
@@ -158,13 +170,13 @@ omega_plot = np.logspace(-3, 4, 501)
 J_plot = spectral_density_highfreq(omega_plot)
 
 plt.figure(figsize=(6.5, 4.2))
-plt.loglog(omega_plot, J_plot, label=r"$J(\omega)$")
-plt.scatter([omega_spin, omega_vib], [spectral_density_highfreq(omega_spin), spectral_density_highfreq(omega_vib)], c=["red", "black"], zorder=5)
-plt.annotate("spin transition", xy=(omega_spin, spectral_density_highfreq(omega_spin)), xytext=(3e-1, 1e-7), arrowprops=dict(arrowstyle="->"))
-plt.annotate("protein vibration band", xy=(omega_vib, spectral_density_highfreq(omega_vib)), xytext=(8e2, 1e-2), arrowprops=dict(arrowstyle="->"))
-plt.xlabel(r"Frequency $\omega$ (dimensionless)")
+plt.loglog(omega_plot * freq_unit, J_plot, label=r"$J(\omega)$")
+plt.scatter([omega_spin * freq_unit, omega_vib * freq_unit], [spectral_density_highfreq(omega_spin), spectral_density_highfreq(omega_vib)], c=["red", "black"], zorder=5)
+plt.annotate("spin transition (~3 GHz)", xy=(omega_spin * freq_unit, spectral_density_highfreq(omega_spin)), xytext=(1e9, 1e-7), arrowprops=dict(arrowstyle="->"))
+plt.annotate("protein Debye band (~10^{11} Hz)", xy=(omega_vib * freq_unit, spectral_density_highfreq(omega_vib)), xytext=(1e11, 1e-2), arrowprops=dict(arrowstyle="->"))
+plt.xlabel(r"Frequency $\omega$ (Hz)")
 plt.ylabel(r"Spectral density $J(\omega)$")
-plt.title("Bath spectral density and the Tegmark-Silent Gap")
+plt.title("Bath spectral density and the Tegmark Silent Gap")
 plt.grid(True, which="both", ls="--", alpha=0.45)
 plt.legend()
 plt.tight_layout()

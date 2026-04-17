@@ -44,6 +44,10 @@ for i in range(N):
     c_ops.append(np.sqrt(gamma * (1 + T)) * sz[i])  # Dephasing
     c_ops.append(np.sqrt(gamma * T) * sx[i])  # Relaxation
 
+# NOTE: The recovered OTOC curve below is phenomenological.
+# It is a sketch of the IHE/GJW extraction proposal, not the output of a full Floquet
+# or open-system Hamiltonian evolution. We keep it for conceptual illustration only.
+
 # --- Function to compute OTOC ---
 def compute_otoc(H, psi0, W, V, c_ops, tlist):
     """
@@ -73,6 +77,7 @@ def compute_otoc(H, psi0, W, V, c_ops, tlist):
 
 # --- Compute OTOC for different scenarios ---
 print("Computing OTOCs for Escatological Analysis...")
+print("NOTE: The recovered curve is phenomenological and illustrative, not a direct Schrödinger/master-equation result.")
 
 # Scenario 1: Closed system (no thermal death)
 otoc_closed = compute_otoc(H, psi0, W, V, [], tlist)
@@ -110,8 +115,8 @@ def fit_lyapunov(tlist, otoc):
 lambda_closed = fit_lyapunov(tlist, otoc_closed)
 lambda_open = fit_lyapunov(tlist, otoc_open)
 
-print(".3f")
-print(".3f")
+print(f"Closed-system Lyapunov exponent: {lambda_closed:.3f}")
+print(f"Open-system Lyapunov exponent: {lambda_open:.3f}")
 
 # --- Resurrection protocol: Information recovery ---
 # Simulate recovery of information from the thermal bath
@@ -133,7 +138,7 @@ fig, axes = plt.subplots(2, 2, figsize=(12, 8))
 # Plot 1: OTOC evolution
 axes[0,0].plot(tlist, np.abs(otoc_closed), 'b-', label='Closed System (Immortal)', linewidth=2)
 axes[0,0].plot(tlist, np.abs(otoc_open), 'r-', label='Open System (Thermal Death)', linewidth=2)
-axes[0,0].plot(tlist, np.abs(otoc_recovered), 'g-', label='Resurrected (IHE/GJW)', linewidth=2)
+axes[0,0].plot(tlist, np.abs(otoc_recovered), 'g-', label='Phenomenological Resurrection Sketch', linewidth=2)
 axes[0,0].set_xlabel('Time')
 axes[0,0].set_ylabel('|OTOC|')
 axes[0,0].set_title('Out-of-Time-Order Correlator\n(Book of Life Scrambling)')
@@ -185,19 +190,18 @@ plt.savefig('escatological_otoc_scrambling.png', dpi=200, bbox_inches='tight')
 print("\nEscatological Analysis Results:")
 print("==============================")
 print("1. Identity Dissolution (Thermal Death):")
-print(".3f")
-print(".3f")
-print("   Final OTOC: {:.3f} (scrambled)".format(np.abs(otoc_open[-1])))
+print(f"   Open-system Lyapunov exponent: {lambda_open:.3f}")
+print(f"   Final OTOC: {np.abs(otoc_open[-1]):.3f} (scrambled)")
 
 print("\n2. Information Preservation (Resurrection via IHE/GJW):")
 recovery_rate = (np.abs(otoc_recovered[-1]) - np.abs(otoc_open[-1])) / (1 - np.abs(otoc_open[-1]))
-print(".1%")
-print("   Final recovered OTOC: {:.3f}".format(np.abs(otoc_recovered[-1])))
+print(f"   Recovery fraction (phenomenological sketch): {recovery_rate:.1%}")
+print(f"   Final recovered OTOC: {np.abs(otoc_recovered[-1]):.3f}")
 
 print("\n3. Theological Implications:")
 print("   - Thermal death dissolves structured identity (soul) into environment")
 print("   - Information not erased, but holographically encoded")
 print("   - IHE/GJW allows resurrection by decoding environmental correlations")
-print("   - Closes Section 18: Mathematical proof of eschatological framework")
+print("   - Closes Section 18: Conceptual proposal for eschatological recovery, with phenomenological illustration")
 
 print("\nSaved figure: escatological_otoc_scrambling.png")
