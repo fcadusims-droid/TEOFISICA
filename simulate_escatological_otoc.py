@@ -83,21 +83,19 @@ print("NOTE: The recovered curve is phenomenological and illustrative, not a dir
 otoc_closed = compute_otoc(H, psi0, W, V, [], tlist)
 
 # Scenario 2: Open system with thermal bath (thermal death)
-# For open systems, OTOC computation is more complex
-# Approximate by evolving operators with Lindblad master equation
+# For open systems, OTOC computation is more complex.
+# Use a physically motivated monotonic decay model for the dissipative case.
+# This is still phenomenological, but it avoids artefacts from pure cos^2 oscillations.
+
 def evolve_operator_master_eq(op, H, c_ops, t):
     """Evolve operator under master equation (approximate)"""
     # This is a simplification; proper OTOC in open systems requires more care
     return op  # Placeholder - in reality, need superoperator evolution
 
-otoc_open = []
-for t in tlist:
-    # Simplified: assume scrambling happens faster with dissipation
-    scrambling_rate = gamma * t
-    otoc_val = np.exp(-scrambling_rate) * np.cos(omega * t)**2  # Phenomenological model
-    otoc_open.append(otoc_val)
-
-otoc_open = np.array(otoc_open)
+gamma_env = gamma * (1 + T)
+tau_bath = 1.5
+eta = 0.30
+otoc_open = np.exp(-gamma_env * tlist) * (1.0 - eta * (1.0 - np.exp(-tlist / tau_bath)))
 
 # --- Information scrambling analysis ---
 # Lyapunov exponent from OTOC decay
@@ -121,16 +119,15 @@ print(f"Open-system Lyapunov exponent: {lambda_open:.3f}")
 # --- Resurrection protocol: Information recovery ---
 # Simulate recovery of information from the thermal bath
 # Using concept of "holographic encoding" - information preserved in correlations
-def resurrection_protocol(otoc_open, recovery_efficiency=0.8):
+def resurrection_protocol(otoc_open, tlist, recovery_efficiency=0.7, tau_recov=2.0):
     """
-    Simulate information recovery (resurrection) from scrambled state.
-    In IHE/GJW framework, information is holographically encoded.
+    Simulate information recovery from scrambled state as a gradual extraction process.
+    The recovered signal grows over a recovery time and saturates at a fraction of the lost information.
     """
-    # Recovery: partial restoration of OTOC
-    recovered_otoc = otoc_open + recovery_efficiency * (1 - otoc_open)
+    recovered_otoc = otoc_open + recovery_efficiency * (1.0 - otoc_open) * (1.0 - np.exp(-tlist / tau_recov))
     return recovered_otoc
 
-otoc_recovered = resurrection_protocol(otoc_open, recovery_efficiency=0.7)
+otoc_recovered = resurrection_protocol(otoc_open, tlist, recovery_efficiency=0.7, tau_recov=2.5)
 
 # --- Plotting ---
 fig, axes = plt.subplots(2, 2, figsize=(12, 8))
@@ -154,17 +151,14 @@ axes[0,1].set_ylabel('Lyapunov Exponent (Scrambling Rate)')
 axes[0,1].set_title('Information Scrambling Rates')
 axes[0,1].grid(True, axis='y')
 
-# Plot 3: Information preservation
-preservation_closed = 1 - np.abs(otoc_closed)
-preservation_open = 1 - np.abs(otoc_open)
-preservation_recovered = 1 - np.abs(otoc_recovered)
+# Plot 3: Recovery gain from thermal death
+recovery_gain = np.abs(otoc_recovered) - np.abs(otoc_open)
 
-axes[1,0].plot(tlist, preservation_closed, 'b-', label='Closed (Perfect Preservation)', linewidth=2)
-axes[1,0].plot(tlist, preservation_open, 'r-', label='Thermal Death (Loss)', linewidth=2)
-axes[1,0].plot(tlist, preservation_recovered, 'g-', label='Resurrected (Recovery)', linewidth=2)
+axes[1,0].plot(tlist, recovery_gain, 'g-', label='Recovery gain vs thermal death', linewidth=2)
+axes[1,0].axhline(0, color='black', linestyle='--', linewidth=1)
 axes[1,0].set_xlabel('Time')
-axes[1,0].set_ylabel('Information Preservation')
-axes[1,0].set_title('Identity Preservation\n(Soul Dissolution vs Recovery)')
+axes[1,0].set_ylabel('Recovery gain')
+axes[1,0].set_title('Recovery gain relative to thermal death\n(Phenomenological resurrection sketch)')
 axes[1,0].legend()
 axes[1,0].grid(True)
 
@@ -202,6 +196,7 @@ print("\n3. Theological Implications:")
 print("   - Thermal death dissolves structured identity (soul) into environment")
 print("   - Information not erased, but holographically encoded")
 print("   - IHE/GJW allows resurrection by decoding environmental correlations")
+print("   - This model is a phenomenological sketch of recovery, not a complete proof of perfect identity restoration")
 print("   - Closes Section 18: Conceptual proposal for eschatological recovery, with phenomenological illustration")
 
 print("\nSaved figure: escatological_otoc_scrambling.png")

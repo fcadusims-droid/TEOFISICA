@@ -220,6 +220,10 @@ for data in results:
     gamma_label = f"gamma_eff={data['gamma_eff']:.2e}" if data["gamma_eff"] is not None else "gamma_eff=N/A"
     print(f"  {data['label']}: {gamma_label}, tau={data['tau_seconds']:.2e} s")
 
+print("\nNOTE: The collapse of coherence under the standard Bloch-Redfield estimate is visible in these results.")
+print("      The current simulation framework does not provide ab initio validation of high-frequency Floquet-Zeno protection.")
+print("      A Floquet-Markov master equation or full Floquet averaging is required to settle the 115-day prediction.")
+
 print("\nSaved figures:")
 print("  - silent_gap_spectral_density.png")
 print("  - coherence_decay_comparison.png")
