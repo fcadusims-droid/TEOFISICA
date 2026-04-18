@@ -9,6 +9,10 @@ Implementa numericamente os Mecanismos III e IV da Seção 7 do paper:
   Mec. IV : Quantum Zeno Freezing via Fe³⁺ (ancilla de reset rápido)
   Silent Gap: J(ω) → 0 para ω << ω_c (banho super-ôhmico)
 
+Este script usa modelos de brinquedo (toy models) para ilustrar os efeitos
+propostos. Ele não prova a biologia nem a aplicabilidade plena ao cérebro.
+
+
 Equações centrais:
   dρ/dt = -i[H, ρ] + Σ_k D[L_k](ρ)    [Lindblad, §12.2]
   Γ_eff = g² / Γ_reset                 [Zeno, §7.6]
@@ -51,21 +55,28 @@ GAMMA_RESET_PHYS= 1e8        # s⁻¹
 # Em unidades normalizadas (ω_0 = 1):
 gamma_0   = GAMMA_0_PHYS / OMEGA_0_PHYS    # ≈ 11.6 (acoplamento forte — T2 < T_Larmor)
 nu_ratio  = NU_DRIVE_PHYS / J_BATH_PHYS   # 10^10 (supressão exponencial)
-g_norm    = (2*np.pi*G_COUPLING_PHYS) / OMEGA_0_PHYS
-Gr_norm   = GAMMA_RESET_PHYS / OMEGA_0_PHYS
-
-# Taxa Floquet (supressão exponencial)
-gamma_floquet = J_BATH_PHYS * np.exp(-nu_ratio) / OMEGA_0_PHYS
-gamma_floquet = max(gamma_floquet, 1e-15)   # floor numérico
+g_norm    = 2*np.pi*G_COUPLING_PHYS / OMEGA_0_PHYS  # acoplamento normalizado ao spin lógico
+# Nota: a simulação direta do regime ν_drive/ J ~ 10¹⁰ em um sistema QuTiP de 2 níveis
+# não é computacionalmente acessível. O código usa um drive reduzido como toy model.
+gamma_floquet_analytic = J_BATH_PHYS * np.exp(-nu_ratio) / OMEGA_0_PHYS
+gamma_floquet_analytic = max(gamma_floquet_analytic, 1e-15)   # floor numérico
 
 # Taxa Zeno (Γ_eff = g² / Γ_reset)
 gamma_zeno = (2*np.pi*G_COUPLING_PHYS)**2 / GAMMA_RESET_PHYS  # s⁻¹ (físico)
 gamma_zeno_norm = gamma_zeno / OMEGA_0_PHYS
 
+# Driver toy model para Floquet
+DRIVE_AMPLITUDE = 0.2
+DRIVE_FREQ_TOY = 20.0   # unidade normalizada; toy model, não valor bio-realista
+
+# Ruído adicional associado a Fe³⁺ próximo ao spin lógico.
+# Este termo ilustra a tensão entre proteção Zeno e ruído magnético ferruginoso.
+GAMMA_FE_DEPH = 0.2
+
 OPTS = {"nsteps": 200000, "rtol": 1e-8, "atol": 1e-10}
 
 print(f"  γ_bare   = {gamma_0:.3f} ω₀  →  T₂ = {OMEGA_0_PHYS/GAMMA_0_PHYS*1e6:.1f} µs")
-print(f"  γ_floquet= {gamma_floquet:.2e} ω₀  →  T₂ = {1/max(gamma_floquet*OMEGA_0_PHYS,1e-30):.2e} s")
+print(f"  γ_floquet_analytic= {gamma_floquet_analytic:.2e} ω₀  →  T₂ = {1/max(gamma_floquet_analytic*OMEGA_0_PHYS,1e-30):.2e} s")
 print(f"  γ_zeno   = {gamma_zeno_norm:.2e} ω₀  →  T₂ = {1/max(gamma_zeno,1e-30):.2e} s")
 
 
@@ -89,66 +100,72 @@ def sim_bare():
     H   = 0.5 * qt.sigmaz()   # ω₀ = 1
     n_th = 0.01               # ocupação térmica baixa (spins nucleares a 310K)
     g   = gamma_0
-    L1  = np.sqrt(g*(n_th+1)) * qt.sigmam()
-    L2  = np.sqrt(g*n_th)     * qt.sigmap()
-    L3  = np.sqrt(g*0.5)      * qt.sigmaz()
-    T2  = 1/gamma_0
-    t_max = 8 * T2
-    tlist = np.linspace(0, t_max, 300)
-    psi0  = (qt.basis(2,0) + qt.basis(2,1)).unit()
-    res   = qt.mesolve(H, psi0, tlist, [L1,L2,L3], [qt.sigmap()], options=OPTS)
-    coh   = np.abs(np.array(res.expect[0]))
-    return tlist / T2, coh, T2    # x em unidades de T2
-
-def sim_floquet():
-    """+ Floquet: taxa de decoerência exponencialmente suprimida."""
-    H   = 0.5 * qt.sigmaz()
-    g   = gamma_floquet
-    L1  = np.sqrt(max(g,1e-15)) * qt.sigmam()
-    L2  = np.sqrt(max(g*0.1,1e-15)) * qt.sigmaz()
+    L1  = np.sqrt(g * (1 + n_th)) * qt.sigmam()
+    L2  = np.sqrt(g * n_th) * qt.sigmap()
+    L3  = np.sqrt(g * 0.1) * qt.sigmaz()
     T2  = 1/max(g, 1e-15)
-    # Escalar para mostrar comportamento comparável
     t_max = 6.0                # em unidades de T2_bare
     tlist = np.linspace(0, t_max, 300)
     psi0  = (qt.basis(2,0) + qt.basis(2,1)).unit()
     try:
-        res  = qt.mesolve(H, psi0, tlist * (1/gamma_0), [L1,L2], [qt.sigmap()], options=OPTS)
+        res  = qt.mesolve(H, psi0, tlist * (1/gamma_0), [L1, L2, L3], [qt.sigmap()], options=OPTS)
         coh  = np.abs(np.array(res.expect[0]))
     except Exception:
-        # fallback analítico: coerência exponencial com Floquet
-        coh = 0.5 * np.exp(-gamma_floquet/gamma_0 * tlist)
+        coh = 0.5 * np.exp(-gamma_0 * tlist)
     return tlist, coh, T2
 
+
+def sim_floquet():
+    """+ Floquet: toy simulation com Hamiltoniano dependente do tempo."""
+    H0   = 0.5 * qt.sigmaz()
+    Hd   = DRIVE_AMPLITUDE * qt.sigmax()
+    Htd  = [H0, [Hd, lambda t, args: np.cos(DRIVE_FREQ_TOY * t)]]
+    g    = gamma_0
+    L1   = np.sqrt(max(g,1e-15)) * qt.sigmam()
+    L2   = np.sqrt(max(g*0.1,1e-15)) * qt.sigmaz()
+    T2   = 1/max(g, 1e-15)
+    t_max = 6.0                # em unidades de T2_bare
+    tlist = np.linspace(0, t_max, 300)
+    psi0  = (qt.basis(2,0) + qt.basis(2,1)).unit()
+    try:
+        res  = qt.mesolve(Htd, psi0, tlist * (1/gamma_0), [L1, L2], [qt.sigmap()], options=OPTS)
+        coh  = np.abs(np.array(res.expect[0]))
+    except Exception:
+        coh = 0.5 * np.exp(-gamma_0 * tlist)
+    return tlist, coh, T2
+
+
 def sim_zeno():
-    """
-    + Zeno: sistema lógica(³¹P) + ancilla(Fe³⁺) com reset rápido.
-    H_tot = H_logic ⊗ I + I ⊗ H_anc + g(σ+⊗σ- + σ-⊗σ+)
-    L_anc = √Γ_reset · I⊗σ-
-    """
-    I2  = qt.identity(2)
-    sz  = qt.sigmaz()
-    sm  = qt.sigmam()
-    sp  = qt.sigmap()
+    """+ Zeno: sistema lógico (³¹P) + ancilla (Fe³⁺) com reset rápido."""
+    sz = qt.sigmaz()
+    sp = qt.sigmap()
+    sm = qt.sigmam()
+    I2 = qt.qeye(2)
 
-    H_logic  = 0.5 * qt.tensor(sz, I2)
-    H_anc    = 0.5 * 1.2 * qt.tensor(I2, sz)   # ancilla ligeiramente detuned
-    H_int    = g_norm * (qt.tensor(sp, sm) + qt.tensor(sm, sp))
-    H_tot    = H_logic + H_anc + H_int
+    H_logic = 0.5 * qt.tensor(sz, I2)
+    H_anc   = 0.0 * qt.tensor(I2, sz)
+    H_int   = g_norm * (qt.tensor(sp, sm) + qt.tensor(sm, sp))
+    H_tot   = H_logic + H_anc + H_int
 
-    L_reset  = np.sqrt(Gr_norm) * qt.tensor(I2, sm)
+    n_th = 0.01
+    Gr_norm = gamma_zeno_norm
+    L_reset   = np.sqrt(Gr_norm) * qt.tensor(I2, sm)
+    L_deph    = np.sqrt(GAMMA_FE_DEPH) * qt.tensor(sz, I2)
+    L1_logic  = np.sqrt(gamma_0 * (1 + n_th)) * qt.tensor(sm, I2)
+    L2_logic  = np.sqrt(gamma_0 * n_th) * qt.tensor(sp, I2)
+    L3_logic  = np.sqrt(gamma_0 * 0.1) * qt.tensor(sz, I2)
 
     psi0    = qt.tensor((qt.basis(2,0)+qt.basis(2,1)).unit(), qt.basis(2,0)).unit()
     t_max   = 6.0    # em unidades de T2_bare
     tlist   = np.linspace(0, t_max, 150)
-    # observable: σ+ no subespaço lógico
     sp_logic = qt.tensor(sp, I2)
 
     try:
-        res  = qt.mesolve(H_tot, psi0, tlist * (1/gamma_0), [L_reset],
+        res  = qt.mesolve(H_tot, psi0, tlist * (1/gamma_0),
+                          [L_reset, L_deph, L1_logic, L2_logic, L3_logic],
                           [sp_logic], options=OPTS)
         coh  = np.abs(np.array(res.expect[0]))
     except Exception:
-        # fallback analítico Zeno
         coh = 0.5 * np.exp(-gamma_zeno_norm/gamma_0 * tlist)
     return tlist, coh, 1/gamma_zeno_norm
 
@@ -156,7 +173,6 @@ def sim_zeno():
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. ESCALAMENTO ANALÍTICO
 # ─────────────────────────────────────────────────────────────────────────────
-
 def floquet_scaling():
     """Γ_H / J vs ν/J — supressão exponencial §7.5."""
     x = np.linspace(0, 14, 300)
@@ -208,25 +224,33 @@ def make_figure():
     ax1.semilogx(freqs, Jw, color="#58a6ff", lw=2.5)
     ax1.fill_between(freqs, 0, Jw, alpha=0.13, color="#58a6ff")
 
-    # marcadores das regiões
+    # ── CORREÇÃO CRÍTICA (nota análise): distinguir freq. Larmor de J_res ──
+    # ω_Larmor = γ_P · B_ext/(2π) ≈ 860 Hz  (oscilação do spin no campo geomagnético)
+    # J_res    = 0.01 Hz           (acoplamento dipolar residual APÓS motional narrowing)
+    # São grandezas físicas distintas que operam em escalas de frequência diferentes.
+    omega_larmor_hz = OMEGA_0_PHYS / (2*np.pi)   # ≈ 860 Hz
+    ax1.axvline(omega_larmor_hz,  color="#58a6ff", ls='-',  lw=2.0,
+                label=f"ω_Larmor (³¹P) ≈ {omega_larmor_hz:.0f} Hz")
     ax1.axvline(G_COUPLING_PHYS,  color="#27ae60", ls='--', lw=1.8,
-                label=f"³¹P lógico ≈ {G_COUPLING_PHYS:.0e} Hz")
+                label=f"J_res (acoplamento residual) ≈ {G_COUPLING_PHYS:.0e} Hz")
     ax1.axvline(GAMMA_RESET_PHYS, color="#e74c3c", ls='--', lw=1.8,
                 label=f"Fe³⁺ ancilla ≈ {GAMMA_RESET_PHYS:.0e} Hz")
     ax1.axvline(1e11, color="#f39c12", ls=':', lw=1.5,
                 label="ω_c Debye ≈ 10¹¹ Hz")
     ax1.axvspan(1e-3, 1e3, alpha=0.10, color="#27ae60")
-    ax1.text(2e0, 0.55, "SILENT\nGAP\n(³¹P protegido)", color="#27ae60",
+    ax1.text(2e0, 0.55, "SILENT\nGAP\n(J_res protegido)", color="#27ae60",
              fontsize=9, ha='center', fontweight='bold',
              bbox=dict(boxstyle='round,pad=0.3', fc='#091a09', alpha=0.85))
-    ax1.legend(fontsize=8.5, facecolor="#161b22", edgecolor="#30363d",
+    ax1.legend(fontsize=7.8, facecolor="#161b22", edgecolor="#30363d",
                labelcolor="#c9d1d9", loc='upper left')
     ax1.set_ylim(0, 1.15); ax1.set_xlim(1e-3, 1e14)
+    # Nota explicativa da distinção
     ax1.text(0.97, 0.02,
              r"$J(\omega) \propto \omega^s \, e^{-\omega/\omega_c}$"
-             "\n(super-ôhmico, s=3)",
+             "\n(super-ôhmico, s=3)\n"
+             "ω_Larmor ≠ J_res (ver §7.3–7.4)",
              transform=ax1.transAxes, ha='right', va='bottom',
-             color="#8b949e", fontsize=9,
+             color="#8b949e", fontsize=8.5,
              bbox=dict(boxstyle='round', fc='#0d1117', alpha=0.85))
 
     # ── P2: Decaimento de Coerência ─────────────────────────────────────────
@@ -248,7 +272,7 @@ def make_figure():
                labelcolor="#c9d1d9")
 
     # Tabela interna
-    T2_fl_phys  = 1/max(gamma_floquet*OMEGA_0_PHYS, 1e-30)
+    T2_fl_phys  = 1/max(gamma_floquet_analytic*OMEGA_0_PHYS, 1e-30)
     T2_ze_phys  = 1/max(gamma_zeno, 1e-30)
     T2_bar_phys = 1/GAMMA_0_PHYS
     ax2.text(0.02, 0.05,
@@ -270,18 +294,44 @@ def make_figure():
     ax3.semilogy(x_fl, y_fl + 1e-30, color="#f39c12", lw=2.5)
     ax3.fill_between(x_fl, 1e-30, y_fl+1e-30, alpha=0.12, color="#f39c12")
 
-    # Ponto operacional do paper: ν/J = 10^10
-    ax3.axvline(10, color="#ffffff", ls=':', lw=1.2, alpha=0.5)
-    ax3.annotate("Paper:\nν/J = 10¹⁰\nΓ_H → 0",
-                 xy=(10, np.exp(-10)), xytext=(7, 1e-2),
-                 color="#f39c12", fontsize=9,
+    # ── CORREÇÃO: banda de plausibilidade biológica vs. claim do paper ───────
+    # ν_drive / J_bath:
+    #   Plausível biologicamente: proteínas vibram a THz (10^12 Hz),
+    #   J_bath fisiológico: ~kHz (10^3 Hz) → ν/J ~ 10^9  (limite superior realista)
+    #   Paper claim: 10^12 Hz / 10^2 Hz = 10^10
+    #   Importante: a SIMULAÇÃO Lindblad apenas reproduz a EQUAÇÃO analítica —
+    #   não é verificação independente do claim biológico.
+
+    # Região biologicamente plausível (ν_drive = THz, J_bath = 0.1–10 kHz)
+    nu_min_bio = np.log10(1e12 / 1e4)    # ν/J = 10^8  (J_bath = 10 kHz)
+    nu_max_bio = np.log10(1e12 / 1e2)    # ν/J = 10^10 (J_bath = 100 Hz)
+    ax3.axvspan(nu_min_bio, nu_max_bio, alpha=0.12, color="#27ae60",
+                label=f"Plausível bio (J_bath=0.1–10 kHz)")
+
+    # Ponto do paper (J_bath = 100 Hz — valor otimista)
+    ax3.axvline(10, color="#f39c12", ls=':', lw=1.5, alpha=0.8)
+    ax3.annotate("Paper: ν/J=10¹⁰\n(J_bath=100 Hz\n— valor otimista)",
+                 xy=(10, np.exp(-10)), xytext=(6.5, 1e-2),
+                 color="#f39c12", fontsize=8.5,
                  arrowprops=dict(arrowstyle="->", color="#f39c12"),
                  bbox=dict(boxstyle='round', fc='#0d1117', alpha=0.9))
+
+    # Aviso de circularidade
+    ax3.text(0.03, 0.05,
+             "⚠ NOTA: simulação Lindblad reproduz a equação\n"
+             "analítica — não é verificação independente.\n"
+             "Parâmetro J_bath = 100 Hz é estimativa do paper.",
+             transform=ax3.transAxes, va='bottom', fontsize=8,
+             color="#f39c12",
+             bbox=dict(boxstyle='round', fc='#1a1200', alpha=0.88))
+
     ax3.text(0.6, 0.82,
              r"$\Gamma_H \sim J \cdot e^{-\nu_{drive}/J}$",
              transform=ax3.transAxes, fontsize=13, color="#f39c12",
              bbox=dict(boxstyle='round', fc='#0d1117', alpha=0.85))
     ax3.set_xlim(0, 14)
+    ax3.legend(fontsize=8.5, facecolor="#161b22", edgecolor="#30363d",
+               labelcolor="#c9d1d9")
 
     # ── P4: Zeno — Γ_eff = g²/Γ_reset ──────────────────────────────────────
     ax4 = fig.add_subplot(gs[1, 1])
@@ -290,8 +340,22 @@ def make_figure():
         "IV. Quantum Zeno: Supressão via Fe³⁺ Ancilla")
 
     g_arr, Ge_arr = zeno_scaling()
-    ax4.loglog(g_arr, Ge_arr, color="#27ae60", lw=2.5)
+    ax4.loglog(g_arr, Ge_arr, color="#27ae60", lw=2.5,
+               label=r"$\Gamma_{eff} = g^2/\Gamma_{reset}$")
     ax4.fill_between(g_arr, 1e-30, Ge_arr, alpha=0.12, color="#27ae60")
+
+    # ── CORREÇÃO: mostrar crossover Γ_reset ~ g (limite Zeno quebra) ─────────
+    # O regime Zeno requer Γ_reset >> g. Para g > Γ_reset/(2π),
+    # o sistema entra no regime de acoplamento forte → Zeno NÃO funciona.
+    g_crossover = GAMMA_RESET_PHYS / (2*np.pi)
+    Ge_cross    = (2*np.pi*g_crossover)**2 / GAMMA_RESET_PHYS
+    ax4.axvline(g_crossover, color="#e74c3c", ls='--', lw=1.8,
+                label=f"Crossover g ~ Γ_reset/2π\n(Zeno quebra para g > {g_crossover:.0e} Hz)")
+    ax4.fill_betweenx([1e-20, 1e5], g_crossover, g_arr[-1],
+                      alpha=0.07, color="#e74c3c", label="Regime Zeno INVÁLIDO")
+    ax4.text(g_crossover*2, 1e-5, "Zeno\ninválido\ng > Γ/2π",
+             color="#e74c3c", fontsize=8, ha='left',
+             bbox=dict(boxstyle='round', fc='#0d1117', alpha=0.85))
 
     # Ponto operacional
     g_op   = G_COUPLING_PHYS
@@ -305,17 +369,26 @@ def make_figure():
         bbox=dict(boxstyle='round', fc='#0d1117', alpha=0.9))
 
     Gam_bio = 1/(80*3.156e7)
-    ax4.axhline(Gam_bio, color="#e74c3c", ls='--', lw=1.5,
+    ax4.axhline(Gam_bio, color="#58a6ff", ls='--', lw=1.5,
                 label=f"Γ_bio (80 anos) = {Gam_bio:.1e} Hz")
-    ax4.text(g_arr[10], Gam_bio*3, "← vida humana (80 anos)",
-             color="#e74c3c", fontsize=8.5)
 
-    ax4.text(0.05, 0.05,
-             r"$\Gamma_{eff} = \frac{g^2}{\Gamma_{reset}}$",
-             transform=ax4.transAxes, fontsize=15, color="#27ae60",
+    # Nota sobre Fe³⁺ como fonte de decoerência (crítica da análise)
+    ax4.text(0.03, 0.02,
+             "⚠ Fe³⁺ paramagnético tipicamente CAUSA\n"
+             "decoerência via dipolo-dipolo. Papel como\n"
+             "ancilla protetora requer separação espectral\n"
+             "(silent gap) — não verificado experimentalmente.",
+             transform=ax4.transAxes, va='bottom', fontsize=7.8,
+             color="#e74c3c",
+             bbox=dict(boxstyle='round', fc='#1a0000', alpha=0.88))
+
+    ax4.text(0.55, 0.92,
+             r"$\Gamma_{eff} = \frac{g^2}{\Gamma_{reset}}$"
+             "\n(requer Γ_reset >> g)",
+             transform=ax4.transAxes, fontsize=12, color="#27ae60", va='top',
              bbox=dict(boxstyle='round', fc='#0d1117', alpha=0.85))
-    ax4.legend(fontsize=9, facecolor="#161b22", edgecolor="#30363d",
-               labelcolor="#c9d1d9")
+    ax4.legend(fontsize=7.8, facecolor="#161b22", edgecolor="#30363d",
+               labelcolor="#c9d1d9", loc='upper left')
 
     # ── Título ──────────────────────────────────────────────────────────────
     fig.suptitle(
