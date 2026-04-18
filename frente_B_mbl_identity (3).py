@@ -636,7 +636,7 @@ def make_figure(results):
         "Toy model fenomenológico — Limitações de dimensionalidade explícitas — Paper §6.4, §8.2",
         fontsize=12.5, fontweight='bold', color="#e6edf3", y=0.985)
 
-    plt.savefig("/mnt/user-data/outputs/frente_B_mbl_identity.png",
+    plt.savefig("frente_B_mbl_identity.png",
                 dpi=180, bbox_inches='tight', facecolor=fig.get_facecolor())
     print("\n[Frente B] Figura salva.")
     plt.close()

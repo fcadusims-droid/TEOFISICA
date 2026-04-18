@@ -419,7 +419,7 @@ def make_figure():
         "Toy model fenomenológico — §7, §15.2 — Limitações epistêmicas explícitas",
         fontsize=12.5, fontweight='bold', color="#e6edf3", y=0.985)
 
-    plt.savefig("/mnt/user-data/outputs/frente_A_tegmark_silent_gap.png",
+    plt.savefig("frente_A_tegmark_silent_gap.png",
                 dpi=180, bbox_inches='tight', facecolor=fig.get_facecolor())
     print("[Frente A] Figura salva.")
     plt.close()
